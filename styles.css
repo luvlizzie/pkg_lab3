@@ -167,3 +167,17 @@ canvas:hover {
   font-size: 13px;
   margin-top: 8px;
 }
+
+.status {
+    font-size: 12px;
+    padding: 8px;
+    border-radius: 6px;
+    margin-top: 8px;
+    text-align: center;
+}
+
+option[value^="cv_"] {
+    background-color: #FFF8DC;
+    font-weight: bold;
+    color: #8B4513;
+}
