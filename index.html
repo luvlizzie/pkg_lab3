@@ -30,6 +30,10 @@
         <button id="applyBtn" class="btn">Применить</button>
         <button id="resetBtn" class="btn secondary">Сбросить</button>
       </div>
+
+      <div id="opencvStatus" class="status" style="margin-top: 10px; padding: 8px; background: #FFF8DC; border-radius: 6px; border-left: 4px solid #8B4513;">
+        ⏳ Загрузка OpenCV.js...
+      </div>
     </div>
 
     <div class="preview">
@@ -49,10 +53,20 @@
         <div class="meta" id="outMeta">—</div>
       </div>
 
-      <div class="footer">© 2025 Image Processing Lab</div>
+      <div class="footer">© 2025 Image Processing Lab | OpenCV.js v4.8.0</div>
     </div>
   </div>
 
+  <script src="opencv.js"></script>
   <script src="script.js"></script>
+  <script>
+    if (typeof cv !== 'undefined') {
+      cv.onRuntimeInitialized = function() {
+        onOpenCvReady();
+      };
+    } else {
+      console.error('OpenCV not loaded');
+    }
+  </script>
 </body>
 </html>
