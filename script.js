@@ -1,4 +1,128 @@
-/* ---------- Инициализация UI ---------- */
+let cvReady = false;
+let cvVersion = '';
+
+function onOpenCvReady() {
+    cvReady = true;
+    cvVersion = cv.version;
+    document.getElementById('opencvStatus').innerHTML = '✅ OpenCV.js загружен! Версия: ' + cvVersion;
+    console.log('OpenCV.js готов! Версия:', cvVersion);
+    addOpenCvMethods();
+}
+
+function imageDataToMat(imageData) {
+    const mat = cv.matFromImageData(imageData);
+    return mat;
+}
+
+function matToImageData(mat, ctx) {
+    const imgData = new ImageData(mat.cols, mat.rows);
+    cv.imshow(ctx.canvas, mat);
+    return ctx.getImageData(0, 0, mat.cols, mat.rows);
+}
+
+function applyOpenCVFilter(imageData, filterType, params = {}) {
+    if (!cvReady) {
+        alert('OpenCV.js еще не загружен!');
+        return null;
+    }
+
+    try {
+        const src = imageDataToMat(imageData);
+        const dst = new cv.Mat();
+        
+        switch(filterType) {
+            case 'cv_gaussian':
+                const ksize = params.ksize || 5;
+                const size = new cv.Size(ksize, ksize);
+                cv.GaussianBlur(src, dst, size, params.sigma || 1.5);
+                break;
+                
+            case 'cv_median':
+                cv.medianBlur(src, dst, params.ksize || 5);
+                break;
+                   
+            case 'cv_canny':
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.Canny(gray, dst, params.threshold1 || 50, params.threshold2 || 150);
+                gray.delete();
+                break;
+                
+            case 'cv_sobel':
+                cv.Sobel(src, dst, cv.CV_8U, params.dx || 1, params.dy || 1, params.ksize || 3);
+                break;
+                
+            case 'cv_laplacian':
+                cv.Laplacian(src, dst, cv.CV_8U, params.ksize || 3);
+                break;
+                
+            case 'cv_morph_open':
+                const kernelOpen = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+                cv.morphologyEx(src, dst, cv.MORPH_OPEN, kernelOpen);
+                kernelOpen.delete();
+                break;
+                
+            case 'cv_morph_close':
+                const kernelClose = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+                cv.morphologyEx(src, dst, cv.MORPH_CLOSE, kernelClose);
+                kernelClose.delete();
+                break;
+                
+            case 'cv_threshold':
+                const grayThresh = new cv.Mat();
+                cv.cvtColor(src, grayThresh, cv.COLOR_RGBA2GRAY);
+                cv.threshold(grayThresh, dst, params.thresh || 127, 255, cv.THRESH_BINARY);
+                grayThresh.delete();
+                break;
+                
+            case 'cv_adaptive_threshold':
+                const grayAdaptive = new cv.Mat();
+                cv.cvtColor(src, grayAdaptive, cv.COLOR_RGBA2GRAY);
+                cv.adaptiveThreshold(grayAdaptive, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, params.blockSize || 11, params.C || 2);
+                grayAdaptive.delete();
+                break;
+                
+            default:
+                src.copyTo(dst);
+                break;
+        }
+        
+        const result = matToImageData(dst, out);
+        
+        src.delete();
+        dst.delete();
+        
+        return result;
+        
+    } catch (error) {
+        console.error('OpenCV ошибка:', error);
+        alert('Ошибка OpenCV: ' + error.message);
+        return null;
+    }
+}
+
+function addOpenCvMethods() {
+    const opencvMethods = [
+        { value: 'cv_gaussian', label: 'OpenCV: Gaussian Blur' },
+        { value: 'cv_median', label: 'OpenCV: Median Blur' },
+        { value: 'cv_canny', label: 'OpenCV: Canny Edge Detection' },
+        { value: 'cv_sobel', label: 'OpenCV: Sobel Edge Detection' },
+        { value: 'cv_laplacian', label: 'OpenCV: Laplacian Edge Detection' },
+        { value: 'cv_threshold', label: 'OpenCV: Global Threshold' },
+        { value: 'cv_adaptive_threshold', label: 'OpenCV: Adaptive Threshold' },
+        { value: 'cv_morph_open', label: 'OpenCV: Morphological Open' },
+        { value: 'cv_morph_close', label: 'OpenCV: Morphological Close' }
+    ];
+    
+    const methodSel = document.getElementById('method');
+    opencvMethods.forEach(method => {
+        const opt = document.createElement('option');
+        opt.value = method.value;
+        opt.textContent = method.label;
+        methodSel.appendChild(opt);
+    });
+}
+
 const fileInput = document.getElementById('fileInput');
 const origCanvas = document.getElementById('origCanvas');
 const outCanvas = document.getElementById('outCanvas');
@@ -19,7 +143,6 @@ let originalImage = null;
 let originalImageData = null;
 let lastResultData = null;
 
-/* ---------- helpers ---------- */
 function updateMeta() {
   if (!originalImageData) { origMeta.textContent = 'Исходник: —'; outMeta.textContent = 'Результат: —'; return; }
   origMeta.textContent = `Исходник: ${originalImageData.width}×${originalImageData.height}, ${originalImageData.data.length/ (originalImageData.width*originalImageData.height) * 8} bit (RGBA buffer)`;
@@ -28,7 +151,6 @@ function updateMeta() {
 
 function clamp(v,min=0,max=255){ return v<min?min:(v>max?max:v); }
 
-/* ---------- parameter UI ---------- */
 function renderParams() {
   const method = methodSel.value;
   paramsDiv.innerHTML = '';
@@ -54,6 +176,44 @@ function renderParams() {
       <label>Окно (size) <input id="p_win" type="number" min="3" max="201" step="2" value="25" /></label>
       <label>Сдвиг (C) <input id="p_C" type="number" step="1" value="0" /></label>
     `;
+  } else if (method === 'stretch') {
+    paramsDiv.innerHTML = `
+      <div class="small">Линейное растяжение контраста: автоматически растягивает min→0 и max→255</div>
+    `;
+  } else if (method === 'cv_gaussian') {
+    paramsDiv.innerHTML = `
+      <label>Размер ядра <input id="p_ksize" type="number" min="3" max="15" step="2" value="5" /></label>
+      <label>Sigma <input id="p_sigma" type="number" min="0.1" max="10" step="0.1" value="1.5" /></label>
+      <div class="small">Нечетные числа: 3, 5, 7...</div>
+    `;
+  } else if (method === 'cv_median') {
+    paramsDiv.innerHTML = `
+      <label>Размер ядра <input id="p_ksize" type="number" min="3" max="15" step="2" value="5" /></label>
+      <div class="small">Только нечетные числа</div>
+    `;
+  } else if (method === 'cv_canny') {
+    paramsDiv.innerHTML = `
+      <label>Threshold 1 <input id="p_threshold1" type="number" min="1" max="255" value="50" /></label>
+      <label>Threshold 2 <input id="p_threshold2" type="number" min="1" max="255" value="150" /></label>
+      <div class="small">Threshold2 > Threshold1</div>
+    `;
+  } else if (method === 'cv_sobel' || method === 'cv_laplacian') {
+    paramsDiv.innerHTML = `
+      <label>Размер ядра <input id="p_ksize" type="number" min="1" max="7" value="3" /></label>
+      <div class="small">1, 3, 5, 7</div>
+    `;
+  } else if (method === 'cv_threshold') {
+    paramsDiv.innerHTML = `
+      <label>Порог <input id="p_thresh" type="number" min="0" max="255" value="127" /></label>
+    `;
+  } else if (method === 'cv_adaptive_threshold') {
+    paramsDiv.innerHTML = `
+      <label>Block Size <input id="p_blockSize" type="number" min="3" max="21" step="2" value="11" /></label>
+      <label>C <input id="p_C" type="number" min="-10" max="10" value="2" /></label>
+      <div class="small">Block Size должно быть нечетным</div>
+    `;
+  } else if (method.startsWith('cv_')) {
+    paramsDiv.innerHTML = `<div class="small">Параметры не требуются</div>`;
   } else if (method === 'niblack') {
     paramsDiv.innerHTML = `
       <label>Окно (size) <input id="p_win" type="number" min="3" max="201" step="2" value="25" /></label>
@@ -65,16 +225,11 @@ function renderParams() {
       <label>k (0..0.5) <input id="p_k" type="number" step="0.01" value="0.34" /></label>
       <label>R (dynamic range, default 128) <input id="p_R" type="number" step="1" value="128" /></label>
     `;
-  } else if (method === 'stretch') {
-    paramsDiv.innerHTML = `
-      <div class="small">Линейное растяжение контраста: автоматически растягивает min→0 и max→255</div>
-    `;
   } else {
     paramsDiv.innerHTML = `<div class="small">Параметры отсутствуют для этого метода</div>`;
   }
 }
 
-/* ---------- image loading & canvas ---------- */
 function fitCanvasToImage(img, canvas) {
   const maxW = 640;
   let w = img.width, h = img.height;
@@ -93,8 +248,6 @@ function loadImageIntoCanvas(img) {
   lastResultData = null;
   updateMeta();
 }
-
-/* ---------- core processing helpers ---------- */
 
 function getGrayArray(imageData) {
   const w = imageData.width, h = imageData.height;
@@ -117,7 +270,6 @@ function putGrayToRGBA(gray, w, h) {
   return id;
 }
 
-/* efficient integral images for mean/std computations */
 function integralImage(gray, w, h) {
   const I = new Float64Array((w+1)*(h+1));
   for (let y=1;y<=h;y++) {
@@ -147,9 +299,6 @@ function sumRegion(I, w, x1,y1,x2,y2) {
   return I[y2*W + x2] - I[y1-1*W + x2] - I[y2*W + x1-1] + I[(y1-1)*W + x1-1];
 }
 
-/* ---------- Algorithms ---------- */
-
-// Per-pixel ops (operate on RGBA ImageData)
 function negative(imageData) {
   const outId = new ImageData(imageData.width, imageData.height);
   const d = imageData.data, od = outId.data;
@@ -202,7 +351,6 @@ function linearStretch(imageData) {
   return outId;
 }
 
-/* Local thresholding algorithms (work on grayscale arrays) */
 function localMeanThreshold(gray,w,h,win,C=0) {
   const half = Math.floor(win/2);
   const I = integralImage(gray,w,h);
@@ -265,13 +413,56 @@ function sauvolaThreshold(gray,w,h,win,k=0.34,R=128) {
   return out;
 }
 
-/* ---------- main apply logic ---------- */
-
 function applySelected() {
   if (!originalImageData) return alert('Загрузите изображение сначала');
 
   const method = methodSel.value;
   let resultImageData = null;
+
+  if (method.startsWith('cv_')) {
+    if (!cvReady) return alert('OpenCV.js еще не загружен!');
+    
+    const params = {};
+    
+    switch(method) {
+        case 'cv_gaussian':
+            params.ksize = Number(document.getElementById('p_ksize')?.value || 5);
+            params.sigma = Number(document.getElementById('p_sigma')?.value || 1.5);
+            break;
+        case 'cv_median':
+            params.ksize = Number(document.getElementById('p_ksize')?.value || 5);
+            break;
+        case 'cv_bilateral':
+            params.d = Number(document.getElementById('p_d')?.value || 9);
+            params.sigmaColor = Number(document.getElementById('p_sigmaColor')?.value || 75);
+            params.sigmaSpace = Number(document.getElementById('p_sigmaSpace')?.value || 75);
+            break;
+        case 'cv_canny':
+            params.threshold1 = Number(document.getElementById('p_threshold1')?.value || 50);
+            params.threshold2 = Number(document.getElementById('p_threshold2')?.value || 150);
+            break;
+        case 'cv_sobel':
+            params.ksize = Number(document.getElementById('p_ksize')?.value || 3);
+            break;
+        case 'cv_laplacian':
+            params.ksize = Number(document.getElementById('p_ksize')?.value || 3);
+            break;
+        case 'cv_threshold':
+            params.thresh = Number(document.getElementById('p_thresh')?.value || 127);
+            break;
+        case 'cv_adaptive_threshold':
+            params.blockSize = Number(document.getElementById('p_blockSize')?.value || 11);
+            params.C = Number(document.getElementById('p_C')?.value || 2);
+            break;
+    }
+    
+    resultImageData = applyOpenCVFilter(originalImageData, method, params);
+    if (resultImageData) {
+        lastResultData = resultImageData;
+        updateMeta();
+    }
+    return;
+  }
 
   if (['negative','brightness','contrast','stretch'].includes(method)) {
     if (method === 'negative') resultImageData = negative(originalImageData);
@@ -306,6 +497,7 @@ function applySelected() {
     updateMeta();
     return;
   }
+
   if (method === 'niblack') {
     const k = Number(document.getElementById('p_k')?.value || -0.2);
     const bin = niblackThreshold(gray,w,h,win,k);
@@ -316,6 +508,7 @@ function applySelected() {
     updateMeta();
     return;
   }
+
   if (method === 'sauvola') {
     const k = Number(document.getElementById('p_k')?.value || 0.34);
     const R = Number(document.getElementById('p_R')?.value || 128);
@@ -329,7 +522,6 @@ function applySelected() {
   }
 }
 
-/* ---------- reset & download ---------- */
 function reset() {
   if (!originalImage) return;
   loadImageIntoCanvas(originalImage);
@@ -342,7 +534,6 @@ function downloadResult() {
   a.click();
 }
 
-/* ---------- File input ---------- */
 fileInput.addEventListener('change', (e)=>{
   const f = e.target.files[0];
   if (!f) return;
@@ -353,7 +544,6 @@ fileInput.addEventListener('change', (e)=>{
   img.src = url;
 });
 
-/* ---------- sample images generator ---------- */
 function makeCanvasCopy(w=512,h=320, drawFn) {
   const c = document.createElement('canvas'); c.width=w;c.height=h;
   const g = c.getContext('2d');
@@ -416,7 +606,6 @@ function createSamples() {
   });
 }
 
-/* ---------- wiring ---------- */
 methodSel.addEventListener('change', renderParams);
 applyBtn.addEventListener('click', applySelected);
 resetBtn.addEventListener('click', reset);
@@ -427,7 +616,6 @@ btnToggleSamples.addEventListener('click', () => {
   sampleList.classList.toggle('active');
 });
 
-/* initial */
 const methods = [
   { value: 'negative', label: 'Инверсия (Negative)' },
   { value: 'brightness', label: 'Яркость (Brightness offset)' },
